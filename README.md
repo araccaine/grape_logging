@@ -1,21 +1,19 @@
 # grape_logging
 
-[![Code Climate](https://codeclimate.com/github/aserafin/grape_logging/badges/gpa.svg)](https://codeclimate.com/github/aserafin/grape_logging)
-[![Build Status](https://travis-ci.org/aserafin/grape_logging.svg?branch=master)](https://travis-ci.org/aserafin/grape_logging)
+This is a fork of [aserafin/grape_logging](https://github.com/aserafin/grape_logging) to fix some things not addressed upstream:
+
+- Missing route_param parameters from grape
+- Some documentation
 
 ## Installation
 
 Add this line to your application's Gemfile:
 
-    gem 'grape_logging'
+    gem 'grape_logging', github: 'araccaine/grape_logging', tag: '1.8.4-1'
 
 And then execute:
 
     $ bundle install
-
-Or install it yourself as:
-
-    $ gem install grape_logging
 
 ## Basic Usage
 
@@ -189,6 +187,49 @@ end
 
 The idea come from here: https://gist.github.com/teamon/e8ae16ffb0cb447e5b49
 
+### Logging via Rails instrumentation and Rails formatter
+
+You may also use the Rails logger formatter with tagged logging on each line with this workaround:
+
+```ruby
+# config/initializers/instrumentation.rb
+ActiveSupport::Notifications.subscribe('grape_key') do |_name, _starts, _ends, _notification_id, payload|
+  # Remove all leading and trailing white space and split the message on each new line
+  messages = GrapeLogging::Formatters::Rails.new.call('', _starts, nil, payload).strip.split(/\n/)
+  
+  # Add a single newline character at the last message for better log readability if needed 
+  messages[-1] = messages[-1] + "\n"
+
+  # Log each message line
+  messages.each do |message|
+    Rails.logger.tagged('API').info message
+  end
+end
+
+# with this in your API class, e.g. app/api/api.rb
+module Api
+  class Api < Grape::API
+    insert_before Grape::Middleware::Error, GrapeLogging::Middleware::RequestLogger,
+                  instrumentation_key: 'grape_key',
+                  include: [
+                    GrapeLogging::Loggers::Response.new,
+                    GrapeLogging::Loggers::FilterParameters.new
+                  ]
+  end
+end
+```
+
+This results in a log like this (note line 3 and 4):
+
+```
+I, [2024-02-20T10:14:23] [<ip>] [<request-id>] Started GET "/123/list/abc?add_param=xyz" for <ip> at 2024-02-20 10:14:23
+D, [2024-02-20T10:14:23] [<ip>] [<request-id>]   Do something...
+I, [2024-02-20T10:14:24] [<ip>] [<request-id>] [API] Parameters: {"add_param"=>"xyz", "more_id"=>"abc", "id"=>123}
+I, [2024-02-20T10:14:24] [<ip>] [<request-id>] [API] Completed 200 OK in 168.25ms (Views: 155.45ms | DB: 12.8ms)
+
+I, [2024-02-20T10:15:00] [<ip>] [<request-id>] Started GET "/some-other-request" for <ip> at 2024-02-20 10:15:00
+```
+
 ### Logging exceptions
 
 If you want to log exceptions you can do it like this
@@ -208,7 +249,7 @@ To install this gem onto your local machine, run `bundle exec rake install`. To 
 
 ## Contributing
 
-1. Fork it ( https://github.com/aserafin/grape_logging/fork )
+1. Fork it
 2. Create your feature branch (`git checkout -b my-new-feature`)
 3. Commit your changes (`git commit -am 'Add some feature'`)
 4. Push to the branch (`git push origin my-new-feature`)
